@@ -26,12 +26,13 @@ export class GifDatabase {
       )
     `);
 
-    // Create FTS5 virtual table with trigram tokenizer for partial/prefix matching
+    // Create FTS5 virtual table with porter tokenizer for word-based search
+    // Porter tokenizer works better with prefix matching for any length query
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS gifs_search USING fts5(
         file_unique_id UNINDEXED,
         description,
-        tokenize="trigram"
+        tokenize="porter"
       )
     `);
 
@@ -116,24 +117,77 @@ export class GifDatabase {
   }
 
   /**
-   * Search GIFs using FTS5 with trigram matching
+   * Search GIFs using hybrid approach:
+   * - LIKE search for partial substring matching (works for any length)
+   * - FTS5 for full-text search with ranking (for complete words)
    * Returns up to 20 results optimized for speed
    */
   search(query: string, limit: number = 20): GifRecord[] {
-    // Sanitize query for FTS5 - escape quotes and handle special characters
-    // Use wildcard suffix for prefix matching with trigrams
-    const sanitizedQuery = query.replace(/"/g, '""').toLowerCase() + '*';
+    const lowerQuery = query.toLowerCase().trim();
 
-    const stmt = this.db.query<GifRecord, [string, number]>(`
-      SELECT g.file_unique_id, g.file_id, g.description, g.added_by
-      FROM gifs_search gs
-      JOIN gifs g ON gs.file_unique_id = g.file_unique_id
-      WHERE gs.description MATCH ?
-      ORDER BY rank
+    // Use LIKE for direct partial matching (handles short queries like "al" finding "albania")
+    // This ensures any substring match is found
+    const likeStmt = this.db.query<GifRecord, [string, number]>(`
+      SELECT file_unique_id, file_id, description, added_by
+      FROM gifs
+      WHERE LOWER(description) LIKE '%' || ? || '%'
       LIMIT ?
     `);
 
-    return stmt.all(sanitizedQuery, limit);
+    const likeResults = likeStmt.all(lowerQuery, limit);
+
+    // If we have enough results from LIKE, return them
+    if (likeResults.length >= limit) {
+      return likeResults;
+    }
+
+    // Try FTS5 with prefix matching for additional results
+    try {
+      const sanitizedQuery = query.replace(/"/g, '""') + '*';
+      const ftsStmt = this.db.query<GifRecord, [string, number]>(`
+        SELECT DISTINCT g.file_unique_id, g.file_id, g.description, g.added_by
+        FROM gifs_search gs
+        JOIN gifs g ON gs.file_unique_id = g.file_unique_id
+        WHERE gs.description MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `);
+
+      const ftsResults = ftsStmt.all(sanitizedQuery, limit);
+
+      // Merge results, avoiding duplicates
+      const resultMap = new Map<string, GifRecord>();
+
+      // Add LIKE results first (they're more relevant for partial matches)
+      for (const result of likeResults) {
+        resultMap.set(result.file_unique_id, result);
+      }
+
+      // Add FTS results
+      for (const result of ftsResults) {
+        if (!resultMap.has(result.file_unique_id) && resultMap.size < limit) {
+          resultMap.set(result.file_unique_id, result);
+        }
+      }
+
+      return Array.from(resultMap.values()).slice(0, limit);
+    } catch (error) {
+      // If FTS fails, return LIKE results
+      return likeResults;
+    }
+  }
+
+  /**
+   * Get the most recently added GIFs
+   */
+  getRecent(limit: number = 20): GifRecord[] {
+    const stmt = this.db.query<GifRecord, [number]>(`
+      SELECT file_unique_id, file_id, description, added_by
+      FROM gifs
+      ORDER BY ROWID DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit);
   }
 
   /**

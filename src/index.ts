@@ -145,17 +145,9 @@ bot.on("inline_query", async (ctx) => {
   const query = ctx.inlineQuery.query.trim();
 
   try {
-    // If query is empty, return empty results
-    if (!query) {
-      await ctx.answerInlineQuery([], {
-        cache_time: 300,
-        is_personal: false,
-      });
-      return;
-    }
-
-    // Search database using FTS5
-    const results = db.search(query, 20);
+    // If query is empty, return last 20 added GIFs
+    // Otherwise, search using FTS5
+    const results = !query ? db.getRecent(20) : db.search(query, 20);
 
     // Convert to inline query results
     const inlineResults = results.map((gif, index) => ({
