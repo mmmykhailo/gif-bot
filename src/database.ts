@@ -121,7 +121,8 @@ export class GifDatabase {
    */
   search(query: string, limit: number = 20): GifRecord[] {
     // Sanitize query for FTS5 - escape quotes and handle special characters
-    const sanitizedQuery = query.replace(/"/g, '""');
+    // Use wildcard suffix for prefix matching with trigrams
+    const sanitizedQuery = query.replace(/"/g, '""').toLowerCase() + '*';
 
     const stmt = this.db.query<GifRecord, [string, number]>(`
       SELECT g.file_unique_id, g.file_id, g.description, g.added_by
