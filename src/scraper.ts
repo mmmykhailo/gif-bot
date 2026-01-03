@@ -26,65 +26,140 @@ const bot = new Bot(BOT_TOKEN);
 const db = new GifDatabase();
 
 /**
- * Fetch and parse the Telegram channel HTML
+ * Fetch HTML from a URL (channel or specific post range)
  */
-async function fetchChannelPosts(): Promise<GifPost[]> {
-  console.log(`Fetching channel: ${CHANNEL_URL}`);
+async function fetchHTML(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  });
 
-  const response = await fetch(CHANNEL_URL);
   if (!response.ok) {
-    throw new Error(`Failed to fetch channel: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
   }
 
-  const html = await response.text();
-  const { document } = parseHTML(html);
+  return await response.text();
+}
 
-  const posts: GifPost[] = [];
+/**
+ * Fetch and parse the Telegram channel HTML with pagination support
+ */
+async function fetchChannelPosts(maxPages: number = 10): Promise<GifPost[]> {
+  console.log(`Fetching channel: ${CHANNEL_URL}`);
 
-  // Find all message containers
-  const messages = document.querySelectorAll(".tgme_widget_message");
+  const allPosts: GifPost[] = [];
+  let beforeId: string | null = null;
 
-  console.log(`Found ${messages.length} messages in the channel`);
+  for (let page = 0; page < maxPages; page++) {
+    const url = beforeId
+      ? `${CHANNEL_URL}?before=${beforeId}`
+      : CHANNEL_URL;
 
-  for (const message of messages) {
-    try {
-      // Get the post ID
-      const messageLink = message.querySelector(".tgme_widget_message_date");
-      const postId = messageLink?.getAttribute("href")?.split("/").pop() || "";
+    console.log(`\nFetching page ${page + 1}/${maxPages}...`);
 
-      // Check if message has a video/GIF
-      const video = message.querySelector("video.tgme_widget_message_video");
-      if (!video) {
-        continue;
+    const html = await fetchHTML(url);
+    const { document } = parseHTML(html);
+
+    // Find all message containers
+    const messages = document.querySelectorAll(".tgme_widget_message");
+
+    console.log(`  Found ${messages.length} messages on this page`);
+
+    if (messages.length === 0) {
+      console.log("  No more messages, stopping pagination");
+      break;
+    }
+
+    let foundOnThisPage = 0;
+
+    for (const message of messages) {
+      try {
+        // Get the post ID
+        const messageLink = message.querySelector(".tgme_widget_message_date");
+        const href = messageLink?.getAttribute("href");
+        const postId = href?.split("/").pop() || "";
+
+        // Update beforeId for pagination
+        if (postId && (!beforeId || parseInt(postId) < parseInt(beforeId))) {
+          beforeId = postId;
+        }
+
+        // Try to find GIF/video in multiple ways
+        let gifUrl: string | null = null;
+
+        // Method 1: video tag with source
+        const video = message.querySelector("video");
+        if (video) {
+          const source = video.querySelector("source");
+          gifUrl = source?.getAttribute("src") || null;
+        }
+
+        // Method 2: Check for animation/document with video
+        if (!gifUrl) {
+          const videoWrapper = message.querySelector(".tgme_widget_message_video_player");
+          if (videoWrapper) {
+            const videoTag = videoWrapper.querySelector("video");
+            const source = videoTag?.querySelector("source");
+            gifUrl = source?.getAttribute("src") || null;
+          }
+        }
+
+        // Method 3: Check i tag background (sometimes used for previews)
+        if (!gifUrl) {
+          const iTag = message.querySelector("i.tgme_widget_message_video_thumb");
+          if (iTag) {
+            const style = iTag.getAttribute("style");
+            const match = style?.match(/background-image:url\('([^']+)'\)/);
+            if (match) {
+              // This is just a thumbnail, try to find actual video
+              const link = message.querySelector("a.tgme_widget_message_video_player");
+              // For now, skip thumbnails and only use actual video URLs
+            }
+          }
+        }
+
+        // Method 4: Direct video in message photo/document
+        if (!gifUrl) {
+          const messageMedia = message.querySelector(".tgme_widget_message_photo, .tgme_widget_message_document");
+          if (messageMedia) {
+            const videoInMedia = messageMedia.querySelector("video source");
+            gifUrl = videoInMedia?.getAttribute("src") || null;
+          }
+        }
+
+        if (!gifUrl) {
+          continue;
+        }
+
+        // Get the description from message text
+        const messageText = message.querySelector(".tgme_widget_message_text");
+        const description = messageText?.textContent?.trim();
+
+        // Only add if both GIF and description exist
+        if (gifUrl && description && description.length > 0) {
+          allPosts.push({
+            gifUrl,
+            description,
+            postId,
+          });
+          foundOnThisPage++;
+        }
+      } catch (error) {
+        console.error("  Error parsing message:", error);
       }
+    }
 
-      // Get the GIF URL from the video source
-      const source = video.querySelector("source");
-      const gifUrl = source?.getAttribute("src");
+    console.log(`  Extracted ${foundOnThisPage} GIF posts with descriptions from this page`);
 
-      if (!gifUrl) {
-        continue;
-      }
-
-      // Get the description from message text
-      const messageText = message.querySelector(".tgme_widget_message_text");
-      const description = messageText?.textContent?.trim();
-
-      // Only add if both GIF and description exist
-      if (gifUrl && description && description.length > 0) {
-        posts.push({
-          gifUrl,
-          description,
-          postId,
-        });
-      }
-    } catch (error) {
-      console.error("Error parsing message:", error);
+    // Small delay between pages to avoid rate limiting
+    if (page < maxPages - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
-  console.log(`Extracted ${posts.length} GIF posts with descriptions`);
-  return posts;
+  console.log(`\nTotal extracted: ${allPosts.length} GIF posts with descriptions`);
+  return allPosts;
 }
 
 /**

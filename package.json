@@ -7,7 +7,8 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
-    "scrape": "bun run src/scraper.ts"
+    "scrape": "bun run src/scraper.ts",
+    "scrape:debug": "bun run src/scraper-debug.ts"
   },
   "dependencies": {
     "grammy": "^1.21.1",
