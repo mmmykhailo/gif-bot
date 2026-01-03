@@ -88,43 +88,31 @@ async function fetchChannelPosts(maxPages: number = 10): Promise<GifPost[]> {
         // Try to find GIF/video in multiple ways
         let gifUrl: string | null = null;
 
-        // Method 1: video tag with source
+        // Method 1: video tag with src attribute directly
         const video = message.querySelector("video");
         if (video) {
-          const source = video.querySelector("source");
-          gifUrl = source?.getAttribute("src") || null;
-        }
+          // First try direct src attribute
+          gifUrl = video.getAttribute("src");
 
-        // Method 2: Check for animation/document with video
-        if (!gifUrl) {
-          const videoWrapper = message.querySelector(".tgme_widget_message_video_player");
-          if (videoWrapper) {
-            const videoTag = videoWrapper.querySelector("video");
-            const source = videoTag?.querySelector("source");
+          // If not found, try source child element
+          if (!gifUrl) {
+            const source = video.querySelector("source");
             gifUrl = source?.getAttribute("src") || null;
           }
         }
 
-        // Method 3: Check i tag background (sometimes used for previews)
+        // Method 2: Check for video in video player wrapper
         if (!gifUrl) {
-          const iTag = message.querySelector("i.tgme_widget_message_video_thumb");
-          if (iTag) {
-            const style = iTag.getAttribute("style");
-            const match = style?.match(/background-image:url\('([^']+)'\)/);
-            if (match) {
-              // This is just a thumbnail, try to find actual video
-              const link = message.querySelector("a.tgme_widget_message_video_player");
-              // For now, skip thumbnails and only use actual video URLs
+          const videoWrapper = message.querySelector(".tgme_widget_message_video_player");
+          if (videoWrapper) {
+            const videoTag = videoWrapper.querySelector("video");
+            if (videoTag) {
+              gifUrl = videoTag.getAttribute("src");
+              if (!gifUrl) {
+                const source = videoTag.querySelector("source");
+                gifUrl = source?.getAttribute("src") || null;
+              }
             }
-          }
-        }
-
-        // Method 4: Direct video in message photo/document
-        if (!gifUrl) {
-          const messageMedia = message.querySelector(".tgme_widget_message_photo, .tgme_widget_message_document");
-          if (messageMedia) {
-            const videoInMedia = messageMedia.querySelector("video source");
-            gifUrl = videoInMedia?.getAttribute("src") || null;
           }
         }
 

@@ -46,9 +46,8 @@ async function debugScraper() {
       const video = message.querySelector("video");
       console.log(`Has <video> tag: ${!!video}`);
       if (video) {
-        const source = video.querySelector("source");
-        const src = source?.getAttribute("src");
-        console.log(`  Video src: ${src?.substring(0, 80)}...`);
+        const src = video.getAttribute("src") || video.querySelector("source")?.getAttribute("src");
+        console.log(`  Video src: ${src ? src.substring(0, 80) + "..." : "(none)"}`);
       }
 
       // Check for video wrapper
