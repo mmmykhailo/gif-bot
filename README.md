@@ -5,9 +5,10 @@ A high-performance Telegram bot for searching and indexing GIFs with full-text s
 ## Features
 
 - **GIF Indexing**: Send GIFs in private chat and tag them with descriptions
-- **Full-Text Search**: Fast inline search using SQLite FTS5 with trigram matching
-- **Partial Matching**: Search for "apple" and find "pineapple"
+- **Full-Text Search**: Fast inline search using SQLite FTS5 with hybrid LIKE + porter tokenizer
+- **Partial Matching**: Search for "al" and find "albania" - supports any substring match
 - **Auto-Update**: Existing GIFs get updated file_ids and merged descriptions
+- **Bulk Import**: Scraper to import GIFs from Telegram channels
 - **Production Ready**: Optimized for sub-100ms search performance
 
 ## Tech Stack
@@ -58,6 +59,27 @@ bun start
 bun run build
 ```
 
+### Scraper (Bulk Import)
+
+Import GIFs from Telegram channels automatically:
+
+```bash
+bun run scrape
+```
+
+The scraper will:
+- Fetch all GIF posts from https://t.me/s/index_gifok
+- Download each GIF with a description
+- Upload to Telegram via bot API to get file IDs
+- Store in the database with descriptions
+- Skip duplicates automatically (idempotent - safe to rerun)
+
+**Requirements:**
+- Set `ADMIN_USER_ID` in `.env` (get from [@userinfobot](https://t.me/userinfobot))
+- The bot will send GIFs to your account during processing
+
+**Note:** The scraper processes one GIF per second to avoid rate limiting.
+
 ## How It Works
 
 ### Adding GIFs
@@ -96,7 +118,7 @@ CREATE TABLE gifs (
 CREATE VIRTUAL TABLE gifs_search USING fts5(
   file_unique_id UNINDEXED,
   description,
-  tokenize="trigram"
+  tokenize="porter"
 );
 ```
 
@@ -111,9 +133,11 @@ Automatic triggers keep the FTS5 index synchronized with the main table on INSER
 ## Performance
 
 - **Search Speed**: Sub-100ms response time
-- **Trigram Matching**: Supports partial and prefix matches
+- **Hybrid Search**: LIKE for substring matching + FTS5 for ranked results
+- **Partial Matching**: Any length substring (e.g., "al" finds "albania")
 - **Caching**: Inline query results cached for 5 minutes
 - **Limit**: Returns top 20 most relevant results
+- **Empty Query**: Shows last 20 added GIFs
 
 ## Production Considerations
 
@@ -127,6 +151,7 @@ Automatic triggers keep the FTS5 index synchronized with the main table on INSER
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `BOT_TOKEN` | Telegram Bot API token from @BotFather | Yes |
+| `ADMIN_USER_ID` | Your Telegram user ID (from @userinfobot) | For scraper only |
 
 ## License
 

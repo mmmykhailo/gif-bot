@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir ./dist --target bun"
+    "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "scrape": "bun run src/scraper.ts"
   },
   "dependencies": {
-    "grammy": "^1.21.1"
+    "grammy": "^1.21.1",
+    "linkedom": "^0.16.10"
   },
   "devDependencies": {
     "@types/bun": "latest"
