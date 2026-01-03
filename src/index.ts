@@ -149,12 +149,11 @@ bot.on("inline_query", async (ctx) => {
     // Otherwise, search using FTS5
     const results = !query ? db.getRecent(20) : db.search(query, 20);
 
-    // Convert to inline query results
+    // Convert to inline query results (without caption)
     const inlineResults = results.map((gif, index) => ({
       type: "gif" as const,
       id: `${gif.file_unique_id}_${index}`,
       gif_file_id: gif.file_id,
-      caption: gif.description,
     }));
 
     // Answer inline query
